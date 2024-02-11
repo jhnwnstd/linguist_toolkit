@@ -37,8 +37,9 @@ def is_valid_url(url: str) -> bool:
     return bool(pattern.match(url))
 
 def sanitize_filename(title: str) -> str:
-    """Removes characters from video titles that are not allowed in filenames."""
-    return re.sub(r'[\\/*?:"<>|]', "", title)
+    """Removes characters from video titles that are not allowed in filenames and replaces spaces with underscores."""
+    title = re.sub(r'[\\/*?:"<>|]', "", title)
+    return title.replace(" ", "_")
 
 def download_stream(yt, download_path, stream_type='progressive'):
     """Downloads the specified type of stream (adaptive or progressive) for a YouTube video."""
