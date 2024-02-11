@@ -1,24 +1,26 @@
 ## Before running the script, make sure to install the required libraries using pip:
 ## pip install pytube
-## pip install Pathlib
 
 ## Ensure that FFmpeg is installed on your system and added to the system's PATH environment variable.
 ## You can download FFmpeg from https://ffmpeg.org/download.html and follow the installation instructions for your operating system.
 
 ## You can downalod FFmpeg with chocolatey on Windows by running the following command in the terminal:
+## choco upgrade chocolatey -y
 ## choco install ffmpeg
 
 ## You can download FFmpeg with Homebrew on macOS by running the following command in the terminal:
+## brew update
+## brew upgrade
 ## brew install ffmpeg
 
 ## You can download FFmpeg with apt on Ubuntu by running the following command in the terminal:
+## sudo apt update && sudo apt upgrade
 ## sudo apt install ffmpeg
 
-# Import necessary libraries
 import re
 from pytube import YouTube
 from pathlib import Path
-import subprocess  # For executing external commands, specifically FFmpeg
+import subprocess  # For executing FFmpeg commands
 
 def sanitize_filename(title:str) -> str:
     """
@@ -32,6 +34,21 @@ def sanitize_filename(title:str) -> str:
     """
     return re.sub(r'[\\/*?:"<>|]', "", title)
 
+def check_ffmpeg_installed():
+    """
+    Checks if FFmpeg is installed and accessible in the system's PATH.
+
+    Raises:
+        RuntimeError: If FFmpeg is not found or an error occurs while checking.
+    """
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        print("FFmpeg is installed and accessible.")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("FFmpeg check failed. Please ensure FFmpeg is installed and added to your system's PATH.") from e
+    except FileNotFoundError:
+        raise RuntimeError("FFmpeg is not installed or not found in the system's PATH.")
+
 def download_youtube_video(video_url:str, folder_name:str="Downloaded_Videos") -> None:
     """
     Downloads a YouTube video in the highest available quality, converts the audio to WAV format, and saves both video and audio files.
@@ -40,6 +57,8 @@ def download_youtube_video(video_url:str, folder_name:str="Downloaded_Videos") -
         video_url (str): The URL of the YouTube video to download.
         folder_name (str, optional): The folder where the video and audio will be saved. Defaults to "Downloaded_Videos".
     """
+    # First, check if FFmpeg is installed and accessible.
+    check_ffmpeg_installed()
     # Create a directory path object for the download location.
     download_path = Path.cwd() / folder_name
     # Ensure the download directory exists, creating it if necessary.
@@ -90,7 +109,50 @@ def download_youtube_video(video_url:str, folder_name:str="Downloaded_Videos") -
         # Handle exceptions and print the error message.
         print(f"An error occurred: {e}")
 
+def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Videos"):
+    """
+    Downloads YouTube videos from a list of URLs in a text file.
+
+    Args:
+        file_path (str): The path to the text file containing YouTube video URLs.
+        folder_name (str, optional): The folder where the video and audio will be saved. Defaults to "Downloaded_Videos".    
+    """
+    with open(file_path, 'r') as file:
+        urls = file.read().splitlines()
+        total_urls = len(urls)
+        print(f"Found {total_urls} URLs in the file.")
+        for index, url in enumerate(urls, start=1):
+            print(f"Downloading video {index} of {total_urls}: {url}")
+            try:
+                download_youtube_video(url, folder_name)
+            except Exception as e:
+                print(f"Failed to download {url}: {e}")
+
+def main():
+    print("\nWelcome to the You2Wav Downloader")
+    while True:
+        print("Select an option:")
+        print("(1) Download a YouTube video")
+        print("(2) Download videos from urls.txt")
+        print("(3) Quit")
+        user_input = input("Your choice (1, 2, or 3): ").strip().lower()
+
+        if user_input == '3' or user_input == 'quit':
+            print("Exiting the program. Goodbye!")
+            break
+        elif user_input == '2':
+            file_path = Path.cwd() / "urls.txt"
+            if not file_path.exists():
+                print("urls.txt not found in the current directory. Creating an empty urls.txt file.")
+                file_path.touch()
+                print("Please add YouTube URLs to urls.txt and run the option again.")
+            else:
+                download_videos_from_file(str(file_path))
+        elif user_input == '1':
+            video_url = input("Enter the YouTube video URL: ").strip()
+            download_youtube_video(video_url)
+        else:
+            print("Invalid option. Please enter 1, 2, or 3.")
+
 if __name__ == "__main__":
-    # Prompt the user for the YouTube video URL and execute the download function.
-    video_url = input("Enter the YouTube video URL: ")
-    download_youtube_video(video_url)
+    main()
