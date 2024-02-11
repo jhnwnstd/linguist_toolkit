@@ -139,8 +139,8 @@ cython_debug/
 *.tmp
 
 # Download content
-# Downloaded_Videos/
-# urls.txt
+Downloaded_Videos/
+urls.txt
 
 # FFmpeg executables and related files
 ffmpeg
