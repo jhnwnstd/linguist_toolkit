@@ -111,48 +111,52 @@ def download_youtube_video(video_url:str, folder_name:str="Downloaded_Videos") -
 
 def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Videos"):
     """
-    Downloads YouTube videos from a list of URLs in a text file.
-
-    Args:
-        file_path (str): The path to the text file containing YouTube video URLs.
-        folder_name (str, optional): The folder where the video and audio will be saved. Defaults to "Downloaded_Videos".    
+    Downloads YouTube videos from a file containing a list of video URLs.
     """
+    # Open and read the file containing YouTube URLs.
     with open(file_path, 'r') as file:
-        urls = file.read().splitlines()
-        total_urls = len(urls)
+        urls = file.read().splitlines()  # Read all lines as a list of URLs.
+        total_urls = len(urls)  # Count total URLs for user feedback.
         print(f"Found {total_urls} URLs in the file.")
+        # Iterate over URLs and download each video.
         for index, url in enumerate(urls, start=1):
             print(f"Downloading video {index} of {total_urls}: {url}")
             try:
-                download_youtube_video(url, folder_name)
+                download_youtube_video(url, folder_name)  # Attempt to download the video.
             except Exception as e:
-                print(f"Failed to download {url}: {e}")
+                print(f"Failed to download {url}: {e}")  # Catch and report any errors.
 
 def main():
     print("\nWelcome to the You2Wav Downloader")
-    while True:
+    while True:  # Continuous loop until user decides to quit.
+        # Prompt the user for their desired action.
         print("Select an option:")
         print("(1) Download a YouTube video")
         print("(2) Download videos from urls.txt")
         print("(3) Quit")
         user_input = input("Your choice (1, 2, or 3): ").strip().lower()
 
+        # Process the user's input and perform the corresponding action.
         if user_input == '3' or user_input == 'quit':
             print("Exiting the program. Goodbye!")
-            break
+            break  # Exit the loop and program.
         elif user_input == '2':
+            # Check for the existence of urls.txt in the current directory.
             file_path = Path.cwd() / "urls.txt"
             if not file_path.exists():
+                # Inform the user if urls.txt is missing and create an empty file.
                 print("urls.txt not found in the current directory. Creating an empty urls.txt file.")
                 file_path.touch()
                 print("Please add YouTube URLs to urls.txt and run the option again.")
             else:
+                # If urls.txt exists, proceed to download videos from it.
                 download_videos_from_file(str(file_path))
         elif user_input == '1':
+            # Prompt the user for a YouTube URL and download the video.
             video_url = input("Enter the YouTube video URL: ").strip()
             download_youtube_video(video_url)
         else:
-            print("Invalid option. Please enter 1, 2, or 3.")
+            print("Invalid option. Please enter 1, 2, or 3.")  # Handle invalid input.
 
 if __name__ == "__main__":
-    main()
+    main()  # Execute the main function if the script is run directly.
