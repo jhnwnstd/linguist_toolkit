@@ -4,14 +4,15 @@ import unicodedata
 import subprocess
 import re
 
-VERBOSE_FFmpeg = False  # Set to True for verbose FFmpeg messaging
+# Constants should be in uppercase
+VERBOSE_FFMPEG = False  # Set to True for verbose FFmpeg messaging
 
-# Pre-compile regular expressions
-illegal_char_pattern = re.compile(r'(?u)[^-\w\s.]')
-space_pattern = re.compile(r'\s+')
+# Pre-compile regular expressions outside of functions for efficiency
+ILLEGAL_CHAR_PATTERN = re.compile(r'(?u)[^-\w\s]') # Matches any character that is not a word character, whitespace or hyphen
+SPACE_PATTERN = re.compile(r'\s+')  # Matches any whitespace character
 
 def check_ffmpeg_installed():
-    """Checks if FFmpeg is installed and accessible in the system's PATH."""
+    """Check if FFmpeg is installed and accessible in the system's PATH."""
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
         return True
@@ -21,13 +22,13 @@ def check_ffmpeg_installed():
 
 def is_valid_url(url: str) -> bool:
     """
-    Validates if the provided URL is a valid YouTube video URL.
+    Validate if the provided URL is a valid YouTube video URL.
 
     Args:
-        url (str): The URL to validate.
+        url: The URL to validate.
 
     Returns:
-        bool: True if the URL is a valid YouTube video URL, False otherwise.
+        True if the URL is a valid YouTube video URL, False otherwise.
     """
     pattern = re.compile(
         r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtube\.[a-z]{2,3}/watch\?v=|youtu\.be/)[^&\s]+$',
@@ -35,22 +36,20 @@ def is_valid_url(url: str) -> bool:
     )
     return bool(pattern.match(url))
 
-def sanitize_filename(title: str, max_length=255, 
-                      illegal_char_regex=illegal_char_pattern, 
-                      space_regex=space_pattern) -> str:
+def sanitize_filename(title: str, max_length=255,
+                      illegal_char_regex=ILLEGAL_CHAR_PATTERN,
+                      space_regex=SPACE_PATTERN) -> str:
     """
-    Sanitizes a string to create a safe and clean filename by removing illegal filesystem characters,
-    replacing spaces with underscores, and ensuring compatibility across different languages,
-    with a focus on maintaining the integrity of English language titles. Uses pre-compiled regular expressions.
+    Sanitize a string to create a safe and clean filename.
 
     Args:
-        title (str): The original title to be sanitized.
-        max_length (int): The maximum length of the sanitized filename.
+        title: The original title to be sanitized.
+        max_length: The maximum length of the sanitized filename.
         illegal_char_regex: Pre-compiled regex for illegal characters.
         space_regex: Pre-compiled regex for spaces.
 
     Returns:
-        str: The sanitized, filesystem-safe filename.
+        The sanitized, filesystem-safe filename.
     """
     title = unicodedata.normalize('NFD', title)
     title = illegal_char_regex.sub('', title)
@@ -61,7 +60,14 @@ def sanitize_filename(title: str, max_length=255,
     return unicodedata.normalize('NFC', title)
 
 def download_stream(yt, download_path, stream_type='progressive'):
-    """Downloads the specified type of stream (adaptive or progressive) for a YouTube video."""
+    """
+    Download the specified type of stream for a YouTube video.
+
+    Args:
+        yt: YouTube object.
+        download_path: Path where the video will be downloaded.
+        stream_type: Type of stream to download ('adaptive' or 'progressive').
+    """
     download_path = Path(download_path)
     if stream_type == 'adaptive':
         video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
@@ -71,24 +77,47 @@ def download_stream(yt, download_path, stream_type='progressive'):
         video_file_path = video_stream.download(output_path=str(download_path), filename=video_filename)
         audio_file_path = audio_stream.download(output_path=str(download_path), filename=audio_filename)
         return str(download_path / video_filename), str(download_path / audio_filename)
-    else:  # default to progressive
+    else:
         progressive_stream = yt.streams.get_highest_resolution()
-        filename = f"{sanitize_filename(yt.title)}.mp4"  # Use the full title for progressive download
+        filename = f"{sanitize_filename(yt.title)}.mp4"
         video_file_path = progressive_stream.download(output_path=str(download_path), filename=filename)
         return str(download_path / filename), None
 
 def combine_streams(video_file_path, audio_file_path, output_path, verbose=False):
-    """Combines video and audio streams into a single file using FFmpeg."""
+    """
+    Combine video and audio streams into a single file using FFmpeg.
+
+    Args:
+        video_file_path: Path to the video file.
+        audio_file_path: Path to the audio file.
+        output_path: Output path for the combined file.
+        verbose: Enable verbose FFmpeg output.
+    """
     loglevel = 'verbose' if verbose else 'error'
     subprocess.run(['ffmpeg', '-loglevel', loglevel, '-i', video_file_path, '-i', audio_file_path, '-c:v', 'copy', '-c:a', 'aac', output_path, '-y'], check=True)
 
+
 def convert_audio_to_wav(video_file_path, wav_path, verbose=False):
-    """Extracts the audio from the video file and converts it to WAV format using FFmpeg."""
+    """
+    Extract the audio from the video file and convert it to WAV format using FFmpeg.
+
+    Args:
+        video_file_path: Path to the video file.
+        wav_path: Output path for the WAV file.
+        verbose: Enable verbose FFmpeg output.
+    """
     loglevel = 'verbose' if verbose else 'error'
     subprocess.run(['ffmpeg', '-loglevel', loglevel, '-i', video_file_path, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', wav_path, '-y'], check=True)
 
+
 def download_and_process_video(video_url: str, folder_name: str = "Downloaded_Videos"):
-    """Coordinates the downloading and processing of YouTube videos."""
+    """
+    Coordinate the downloading and processing of YouTube videos.
+
+    Args:
+        video_url: URL of the YouTube video.
+        folder_name: Name of the folder where videos will be downloaded.
+    """
     if not check_ffmpeg_installed():
         return
 
@@ -103,7 +132,6 @@ def download_and_process_video(video_url: str, folder_name: str = "Downloaded_Vi
     final_video_path = download_path / f"{sanitized_title}.mp4"
     wav_path = download_path / f"{sanitized_title}.wav"
 
-    # Decide if adaptive streams are available and choose the download strategy accordingly
     if yt.streams.filter(adaptive=True).first():
         video_file_path, audio_file_path = download_stream(yt, download_path, stream_type='adaptive')
         combine_streams(video_file_path, audio_file_path, str(final_video_path))
@@ -113,25 +141,30 @@ def download_and_process_video(video_url: str, folder_name: str = "Downloaded_Vi
     convert_audio_to_wav(str(final_video_path), str(wav_path))
     print(f"Download completed! Video saved in: '{final_video_path}', Audio in WAV format saved in: '{wav_path}'")
 
+
 def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Videos"):
     """
-    Checks if urls.txt exists and has valid video URLs. Informs the user and acts accordingly.
+    Check if urls.txt exists and has valid video URLs.
+
+    Args:
+        file_path: Path to the file containing YouTube URLs.
+        folder_name: Name of the folder where videos will be downloaded.
     """
     file_path = Path(file_path)
     if not file_path.exists():
         print(f"'{file_path.name}' not found. Creating the file. Please add video URLs to it.")
         file_path.touch()
-        exit()
+        return
 
     urls = file_path.read_text().splitlines()
     valid_urls = [url for url in urls if is_valid_url(url)]
 
     if not urls:
         print(f"'{file_path.name}' is created but empty. Please add some video URLs to it.")
-        exit()
+        return
     elif not valid_urls:
         print(f"No valid video URLs found in '{file_path.name}'. Please check the URLs.")
-        exit()
+        return
 
     print(f"Found {len(valid_urls)} valid video URL(s) in '{file_path.name}'. Starting downloads...")
     for index, url in enumerate(valid_urls, start=1):
@@ -143,6 +176,9 @@ def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Vid
             continue  # Proceeds to the next URL in case of error.
 
 def main():
+    """
+    Main function to run the You2Wav Downloader.
+    """
     print("\nWelcome to the You2Wav Downloader")
     while True:
         print("Select an option:")
@@ -160,12 +196,12 @@ def main():
                 print("urls.txt not found in the current directory or is empty. Creating an empty urls.txt file.")
                 file_path.touch()
                 print("Please add YouTube URLs to urls.txt and run the option again.")
-                exit()  # Quits the program after informing the user.
+                return
             else:
                 urls = file_path.read_text().splitlines()
                 if len(urls) == 0:
                     print("urls.txt is empty. Please add some YouTube URLs to it.")
-                    exit()  # Quits the program if urls.txt is empty.
+                    return
                 download_videos_from_file(str(file_path))
         elif user_input == '1':
             video_url = input("Enter the YouTube video URL: ").strip()
