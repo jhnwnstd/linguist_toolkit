@@ -7,6 +7,7 @@ Python and coding tools for collecting text and audio data.
 `pip install pytube`
 
 Ensure that FFmpeg is installed on your system and added to the system's PATH environment variable.
+
 You can download FFmpeg from https://ffmpeg.org/download.html and follow the installation instructions for your operating system.
 
 ### You can downalod FFmpeg with chocolatey on Windows by running the following command in the terminal:
