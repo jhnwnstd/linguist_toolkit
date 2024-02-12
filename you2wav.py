@@ -1,9 +1,14 @@
 from pytube import YouTube
 from pathlib import Path
+import unicodedata
 import subprocess
 import re
 
 VERBOSE_FFmpeg = False  # Set to True for verbose FFmpeg messaging
+
+# Pre-compile regular expressions
+illegal_char_pattern = re.compile(r'(?u)[^-\w\s.]')
+space_pattern = re.compile(r'\s+')
 
 def check_ffmpeg_installed():
     """Checks if FFmpeg is installed and accessible in the system's PATH."""
@@ -15,14 +20,45 @@ def check_ffmpeg_installed():
         return False
 
 def is_valid_url(url: str) -> bool:
-    """Validates if the provided URL is a valid YouTube video URL."""
-    pattern = re.compile(r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/).+$')
+    """
+    Validates if the provided URL is a valid YouTube video URL.
+
+    Args:
+        url (str): The URL to validate.
+
+    Returns:
+        bool: True if the URL is a valid YouTube video URL, False otherwise.
+    """
+    pattern = re.compile(
+        r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtube\.[a-z]{2,3}/watch\?v=|youtu\.be/)[^&\s]+$',
+        re.IGNORECASE  # Handle case-insensitive matching
+    )
     return bool(pattern.match(url))
 
-def sanitize_filename(title: str) -> str:
-    """Removes characters from video titles that are not allowed in filenames and replaces spaces with underscores."""
-    title = re.sub(r'[\\/*?:"<>|]', "", title)
-    return title.replace(" ", "_")
+def sanitize_filename(title: str, max_length=255, 
+                      illegal_char_regex=illegal_char_pattern, 
+                      space_regex=space_pattern) -> str:
+    """
+    Sanitizes a string to create a safe and clean filename by removing illegal filesystem characters,
+    replacing spaces with underscores, and ensuring compatibility across different languages,
+    with a focus on maintaining the integrity of English language titles. Uses pre-compiled regular expressions.
+
+    Args:
+        title (str): The original title to be sanitized.
+        max_length (int): The maximum length of the sanitized filename.
+        illegal_char_regex: Pre-compiled regex for illegal characters.
+        space_regex: Pre-compiled regex for spaces.
+
+    Returns:
+        str: The sanitized, filesystem-safe filename.
+    """
+    title = unicodedata.normalize('NFD', title)
+    title = illegal_char_regex.sub('', title)
+    title = space_regex.sub('_', title)
+    title = title.strip(".")
+    title_bytes = title.encode('utf-8')[:max_length]
+    title = title_bytes.decode('utf-8', 'ignore').rstrip('_')
+    return unicodedata.normalize('NFC', title)
 
 def download_stream(yt, download_path, stream_type='progressive'):
     """Downloads the specified type of stream (adaptive or progressive) for a YouTube video."""
