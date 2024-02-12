@@ -1,26 +1,9 @@
-## Before running the script, make sure to install the required libraries using pip:
-## pip install pytube
-
-## Ensure that FFmpeg is installed on your system and added to the system's PATH environment variable.
-## You can download FFmpeg from https://ffmpeg.org/download.html and follow the installation instructions for your operating system.
-
-## You can downalod FFmpeg with chocolatey on Windows by running the following command in the terminal:
-## choco upgrade all -y
-## choco install ffmpeg
-
-## You can download FFmpeg with Homebrew on macOS by running the following command in the terminal:
-## brew update
-## brew upgrade
-## brew install ffmpeg
-
-## You can download FFmpeg with apt on Ubuntu by running the following command in the terminal:
-## sudo apt update && sudo apt upgrade
-## sudo apt install ffmpeg
-
 from pytube import YouTube
 from pathlib import Path
 import subprocess
 import re
+
+VERBOSE_FFmpeg = False  # Set to True for verbose FFmpeg messaging
 
 def check_ffmpeg_installed():
     """Checks if FFmpeg is installed and accessible in the system's PATH."""
@@ -47,8 +30,8 @@ def download_stream(yt, download_path, stream_type='progressive'):
     if stream_type == 'adaptive':
         video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
         audio_stream = yt.streams.filter(only_audio=True).first()
-        video_filename = f"{sanitize_filename(yt.title)}_video.mp4"  # Manually append '_video' to the filename
-        audio_filename = f"{sanitize_filename(yt.title)}_audio.mp4"  # Manually append '_audio' to the filename
+        video_filename = f"{sanitize_filename(yt.title)}_video.mp4"
+        audio_filename = f"{sanitize_filename(yt.title)}_audio.mp4"
         video_file_path = video_stream.download(output_path=str(download_path), filename=video_filename)
         audio_file_path = audio_stream.download(output_path=str(download_path), filename=audio_filename)
         return str(download_path / video_filename), str(download_path / audio_filename)
@@ -58,13 +41,15 @@ def download_stream(yt, download_path, stream_type='progressive'):
         video_file_path = progressive_stream.download(output_path=str(download_path), filename=filename)
         return str(download_path / filename), None
 
-def combine_streams(video_file_path, audio_file_path, output_path):
+def combine_streams(video_file_path, audio_file_path, output_path, verbose=False):
     """Combines video and audio streams into a single file using FFmpeg."""
-    subprocess.run(['ffmpeg', '-i', video_file_path, '-i', audio_file_path, '-c:v', 'copy', '-c:a', 'aac', output_path, '-y'], check=True)
+    loglevel = 'verbose' if verbose else 'error'
+    subprocess.run(['ffmpeg', '-loglevel', loglevel, '-i', video_file_path, '-i', audio_file_path, '-c:v', 'copy', '-c:a', 'aac', output_path, '-y'], check=True)
 
-def convert_audio_to_wav(video_file_path, wav_path):
+def convert_audio_to_wav(video_file_path, wav_path, verbose=False):
     """Extracts the audio from the video file and converts it to WAV format using FFmpeg."""
-    subprocess.run(['ffmpeg', '-i', video_file_path, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', wav_path, '-y'], check=True)
+    loglevel = 'verbose' if verbose else 'error'
+    subprocess.run(['ffmpeg', '-loglevel', loglevel, '-i', video_file_path, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', wav_path, '-y'], check=True)
 
 def download_and_process_video(video_url: str, folder_name: str = "Downloaded_Videos"):
     """Coordinates the downloading and processing of YouTube videos."""

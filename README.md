@@ -11,13 +11,17 @@ You can download FFmpeg from https://ffmpeg.org/download.html and follow the ins
 
 You can downalod FFmpeg with chocolatey on Windows by running the following command in the terminal:
 `choco upgrade all -y`
+
 `choco install ffmpeg`
 
 You can download FFmpeg with Homebrew on macOS by running the following command in the terminal:
 `brew update`
+
 `brew upgrade`
+
 `brew install ffmpeg`
 
 ## You can download FFmpeg with apt on Ubuntu by running the following command in the terminal:
 `sudo apt update && sudo apt upgrade`
+
 `sudo apt install ffmpeg`
