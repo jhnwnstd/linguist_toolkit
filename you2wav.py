@@ -20,6 +20,7 @@ def check_ffmpeg_installed():
         print("FFmpeg is not installed or not found in PATH.")
         return False
 
+
 def is_valid_url(url: str) -> bool:
     """
     Validate if the provided URL is a valid YouTube video URL.
@@ -35,6 +36,7 @@ def is_valid_url(url: str) -> bool:
         re.IGNORECASE  # Handle case-insensitive matching
     )
     return bool(pattern.match(url))
+
 
 def sanitize_filename(title: str, max_length=255,
                       illegal_char_regex=ILLEGAL_CHAR_PATTERN,
@@ -59,6 +61,7 @@ def sanitize_filename(title: str, max_length=255,
     title = title_bytes.decode('utf-8', 'ignore').rstrip('_')
     return unicodedata.normalize('NFC', title)
 
+
 def download_stream(yt, download_path, stream_type='progressive'):
     """
     Download the specified type of stream for a YouTube video.
@@ -82,6 +85,7 @@ def download_stream(yt, download_path, stream_type='progressive'):
         filename = f"{sanitize_filename(yt.title)}.mp4"
         video_file_path = progressive_stream.download(output_path=str(download_path), filename=filename)
         return str(download_path / filename), None
+
 
 def combine_streams(video_file_path, audio_file_path, output_path, verbose=False):
     """
