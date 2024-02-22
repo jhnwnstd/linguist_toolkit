@@ -4,14 +4,16 @@ import unicodedata
 import subprocess
 import re
 
-# Constants in uppercase for configuration options
-VERBOSE_FFMPEG = False  # Toggle for verbose FFmpeg output
+# Configuration options
+VERBOSE_FFMPEG = False  # Toggle True for verbose FFmpeg output
 
-# Compiled regex patterns for reusability
+# Pre-ompiled regex patterns for filename sanitization
 ILLEGAL_CHAR_PATTERN = re.compile(r'[^\w\s-]')
 
+# Pre-compiled regex pattern to match any whitespace characters
 SPACE_PATTERN = re.compile(r'\s+')
 
+# Pre-compiled regex pattern to match a valid YouTube video URL
 YOUTUBE_URL_REGEX = re.compile(
     r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtube\.[a-z]{2,3}/watch\?v=|youtu\.be/)[^&\s]+$',
     re.IGNORECASE
@@ -32,6 +34,7 @@ def check_ffmpeg_installed():
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         is_ffmpeg_installed_cache = True
+        
     except subprocess.SubprocessError:
         print("FFmpeg is not installed or not found in PATH.")
         is_ffmpeg_installed_cache = False
@@ -68,6 +71,7 @@ def download_stream(yt, download_path, stream_type='progressive'):
         stream_type: Type of stream to download ('adaptive' or 'progressive').
     """
     download_path = Path(download_path)
+
     if stream_type == 'adaptive':
         video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
         audio_stream = yt.streams.filter(only_audio=True).first()
@@ -76,6 +80,7 @@ def download_stream(yt, download_path, stream_type='progressive'):
         video_file_path = video_stream.download(output_path=str(download_path), filename=video_filename)
         audio_file_path = audio_stream.download(output_path=str(download_path), filename=audio_filename)
         return str(download_path / video_filename), str(download_path / audio_filename)
+    
     else:
         progressive_stream = yt.streams.get_highest_resolution()
         filename = f"{sanitize_filename(yt.title)}.mp4"
@@ -169,33 +174,40 @@ def download_and_process_video(video_url: str, folder_name: str = "Downloaded_Vi
     wav_path = Path(folder_name) / f"{sanitized_title}.wav"
 
     try:
+
         if yt.streams.filter(adaptive=True).first():
             video_file_path, audio_file_path = download_stream(yt, folder_name, 'adaptive')
             combine_streams(video_file_path, audio_file_path, str(final_video_path), verbose=verbose)
+
         else:
             download_stream(yt, folder_name, 'progressive')
         convert_audio_to_wav(str(final_video_path), str(wav_path), verbose=verbose)
+
         if verbose:
             print(f"Video saved in: '{final_video_path}'")
             print(f"Audio in WAV format saved in: '{wav_path}'")
         return True, f"Downloaded: {sanitized_title}"
+    
     except Exception as e:
         return False, f"Error downloading {video_url}: {e}"
 
 
 def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Videos", verbose=False):
     file_path = Path(file_path)
+
     if not file_path.exists():
         print(f"'{file_path.name}' not found. Creating the file for you to add video URLs.")
         file_path.touch()
         return
 
     urls = file_path.read_text().splitlines()
+
     if not urls:
         print(f"'{file_path.name}' is empty. Please add some video URLs to it.")
         return
 
     valid_urls = [url for url in urls if is_valid_youtube_url(url)]
+
     if not valid_urls:
         print(f"No valid video URLs found in '{file_path.name}'.")
         return
@@ -204,8 +216,10 @@ def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Vid
 
     for index, url in enumerate(valid_urls, start=1):
         success, message = download_and_process_video(url, folder_name, verbose=verbose)
+
         if success:
             print(f"{index}. {message}")
+
         else:
             print(f"{index}. {message} (Failed)")
 
@@ -239,20 +253,27 @@ def run_ui():
         else:
             print("Invalid option. Please enter 1, 2, or 3.")
 
+
 def handle_file_download_option(file_path):
+
     if not file_path.exists():
         print(f"'{file_path.name}' not found. Creating the file for you to add video URLs.")
         file_path.touch()
+
     elif file_path.read_text().strip() == "":
         print("urls.txt is currently empty. Please add some YouTube URLs to it and try again.")
+
     else:
         download_videos_from_file(str(file_path), "Downloaded_Videos")
 
+
 def handle_single_video_download_option():
     video_url = input("Enter the YouTube video URL: ").strip()
+
     if is_valid_youtube_url(video_url):
         success, message = download_and_process_video(video_url, "Downloaded_Videos")
         print(message if success else f"Failed to download: {message}")
+
     else:
         print("Invalid URL. Please enter a valid YouTube video URL.")
 
