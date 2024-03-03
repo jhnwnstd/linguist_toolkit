@@ -1,4 +1,4 @@
-# linguist_tools
+# linguist_toolkit
 Python and coding tools for collecting text and audio data. This suite includes tools for downloading YouTube videos as audio files, converting images to text using OCR, and converting text or tokens to audio.
 
 ## Using you2wav.py
