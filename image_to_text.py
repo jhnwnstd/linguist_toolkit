@@ -77,6 +77,9 @@ def extract_text(image_path: Path, output_file: Path, tesseract_config: str = ''
 
 
 def extract_text_from_images(directory: str, tesseract_config: str = '', output_dir: str = None):
+    """
+    Extract text from images in the specified directory and save the extracted text to a file.
+    """
     if output_dir is None:
         output_dir = Path(directory) / "extracted_texts"
     else:

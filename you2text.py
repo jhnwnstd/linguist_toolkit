@@ -7,47 +7,49 @@ from urllib.error import HTTPError, URLError
 def list_available_languages(captions):
     """
     Lists all available languages for captions.
-    
-    Args:
-        captions (CaptionQuery): Captions object from pytube.
     """
     print("Available languages for captions:")
-    for lang_code in captions.lang_code_index.keys():
-        print(f"{lang_code}: {captions[lang_code].name}")
+    for lang_code, caption_obj in captions.items():
+        print(f"{lang_code} ({caption_obj.name}): Auto-generated: {'yes' if 'a.' in lang_code else 'no'}")
 
 def download_captions(video_url, preferred_language='en'):
     """
-    Downloads and cleans captions for a YouTube video, handling exceptions.
-    
-    Args:
-        video_url (str): URL of the YouTube video.
-        preferred_language (str): Preferred language code for the captions (default is 'en').
-    
-    Returns:
-        tuple: Cleaned caption text and the language code of the downloaded captions, or None if unavailable.
+    Downloads and cleans captions for a YouTube video, updated to handle caption availability better
+    and to avoid using deprecated methods.
     """
     try:
+        print("Initializing YouTube object...")
         yt = YouTube(video_url)
         captions = yt.captions
+
+        print("Captions:", captions)  # Directly print captions to debug
 
         if not captions:
             print("No captions available for this video.")
             return None, None
 
-        # List available languages
+        # Listing available languages for debugging or user information
         list_available_languages(captions)
 
-        # Attempt to fetch the preferred language; otherwise, select the first available one.
-        caption = captions.get_by_language_code(preferred_language) or next(iter(captions.values()), None)
-        if not caption:
-            print(f"No captions available in the preferred language ({preferred_language}).")
-            return None, None
+        print("Attempting to download captions...")
+        # Attempt to fetch manual captions first using dictionary access
+        caption_key = preferred_language
+        caption = captions.get(caption_key)
+        if caption is None:
+            print(f"No manual captions available in the preferred language ({preferred_language}). Trying auto-generated captions.")
+            # Attempt to fetch auto-generated captions
+            caption_key = preferred_language + '.a'  # Adjust for auto-generated captions
+            caption = captions.get(caption_key)
+            if caption is None:
+                print("No captions available in the preferred language, including auto-generated.")
+                return None, None
 
-        # Clean caption text
+        print("Generating caption text...")
         caption_text = caption.generate_srt_captions()
         clean_text = BeautifulSoup(caption_text, "html.parser").text
 
-        return clean_text, caption.code
+        print("Captions downloaded successfully.")
+        return clean_text, caption.code.strip('.')
     except VideoUnavailable:
         print(f"Video {video_url} is unavailable, skipping.")
     except (HTTPError, URLError) as e:
@@ -76,7 +78,7 @@ def main():
     video_url = input("Enter the YouTube video URL: ").strip()
     preferred_language = input("Enter the preferred language code for captions (leave blank for automatic selection): ").strip() or 'en'
     output_dir = input("Enter output directory (leave blank for current directory): ").strip() or Path.cwd()
-    output_dir = Path(output_dir)  # Ensure this is a Path object
+    output_dir = Path(output_dir)
     
     text, language_code = download_captions(video_url, preferred_language)
     
