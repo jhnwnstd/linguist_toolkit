@@ -1,282 +1,229 @@
-from pytube import YouTube
+import yt_dlp
 from pathlib import Path
 import unicodedata
-import subprocess
 import re
+import logging
+from typing import Optional, List, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configuration options
-VERBOSE_FFMPEG = False  # Toggle True for verbose FFmpeg output
+VERBOSE = False  # Toggle True for verbose output
+MAX_WORKERS = 8  # Number of threads for concurrent downloads
 
-# Pre-ompiled regex patterns for filename sanitization
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG if VERBOSE else logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Pre-compiled regex patterns for filename sanitization
 ILLEGAL_CHAR_PATTERN = re.compile(r'[^\w\s-]')
-
-# Pre-compiled regex pattern to match any whitespace characters
 SPACE_PATTERN = re.compile(r'\s+')
-
-# Pre-compiled regex pattern to match a valid YouTube video URL
 YOUTUBE_URL_REGEX = re.compile(
-    r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtube\.[a-z]{2,3}/watch\?v=|youtu\.be/)[^&\s]+$',
+    r'^(https?://)?(www\.)?'
+    r'(youtube\.com/watch\?v=|youtube\.[a-z]{2,3}/watch\?v=|youtu\.be/)'
+    r'[^&\s]+$',
     re.IGNORECASE
 )
 
-# Global variable to cache the FFmpeg installation status
-is_ffmpeg_installed_cache = None
+class YouTubeDownloader:
+    def __init__(self, 
+                 download_folder: str = "Downloaded_Videos", 
+                 verbose: bool = False, 
+                 max_workers: int = MAX_WORKERS):
+        """
+        Initializes the YouTubeDownloader with specified settings.
 
+        Args:
+            download_folder (str): Directory where videos will be downloaded.
+            verbose (bool): Enable verbose logging.
+            max_workers (int): Number of threads for concurrent downloads.
+        """
+        self.download_path = Path(download_folder)
+        self.download_path.mkdir(parents=True, exist_ok=True)
+        self.verbose = verbose
+        self.max_workers = max_workers
 
-def check_ffmpeg_installed():
-    """Check if FFmpeg is installed and accessible in the system's PATH, using a cached result if available."""
-    global is_ffmpeg_installed_cache
-
-    # Return the cached result if the check has already been performed
-    if is_ffmpeg_installed_cache is not None:
-        return is_ffmpeg_installed_cache
-
-    try:
-        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        is_ffmpeg_installed_cache = True
-        
-    except subprocess.SubprocessError:
-        print("FFmpeg is not installed or not found in PATH.")
-        is_ffmpeg_installed_cache = False
-
-    return is_ffmpeg_installed_cache
-
-
-def is_valid_youtube_url(url: str) -> bool:
-    """Validate if the provided URL is a valid YouTube video URL."""
-    # Use the globally compiled regex for validation
-    return bool(YOUTUBE_URL_REGEX.match(url))
-
-
-def sanitize_filename(title: str, max_length=255) -> str:
-    """
-    Sanitize a string to create a safe and clean filename, considering maximum length.
-    """
-    # Normalizing, removing illegal characters, replacing spaces, and managing max_length
-    sanitized_title = unicodedata.normalize('NFKD', title)
-    sanitized_title = ILLEGAL_CHAR_PATTERN.sub('', sanitized_title)
-    sanitized_title = SPACE_PATTERN.sub('_', sanitized_title).strip(".")
-    # Encoding and slicing to handle max_length more accurately
-    sanitized_title = sanitized_title.encode('utf-8')[:max_length].decode('utf-8', 'ignore').rstrip('_')
-    return unicodedata.normalize('NFC', sanitized_title)
-
-
-def download_stream(yt, download_path, stream_type='progressive'):
-    """
-    Download the specified type of stream for a YouTube video.
-
-    Args:
-        yt: YouTube object.
-        download_path: Path where the video will be downloaded.
-        stream_type: Type of stream to download ('adaptive' or 'progressive').
-    """
-    download_path = Path(download_path)
-
-    if stream_type == 'adaptive':
-        video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
-        audio_stream = yt.streams.filter(only_audio=True).first()
-        video_filename = f"{sanitize_filename(yt.title)}_video.mp4"
-        audio_filename = f"{sanitize_filename(yt.title)}_audio.mp4"
-        video_file_path = video_stream.download(output_path=str(download_path), filename=video_filename)
-        audio_file_path = audio_stream.download(output_path=str(download_path), filename=audio_filename)
-        return str(download_path / video_filename), str(download_path / audio_filename)
-    
-    else:
-        progressive_stream = yt.streams.get_highest_resolution()
-        filename = f"{sanitize_filename(yt.title)}.mp4"
-        video_file_path = progressive_stream.download(output_path=str(download_path), filename=filename)
-        return str(download_path / filename), None
-
-
-def run_ffmpeg_command(input_paths, output_path, options=None, verbose=False):
-    """
-    Run a FFmpeg command with given inputs, output, and options.
-
-    Args:
-        input_paths (list of str): Paths to input files.
-        output_path (str): Path for the output file.
-        options (list of str, optional): Additional options for FFmpeg command.
-        verbose (bool): Flag to control the verbosity of FFmpeg output.
-
-    Raises:
-        subprocess.SubprocessError: If the FFmpeg command fails.
-    """
-    command = ['ffmpeg']
-
-    # Add verbosity option
-    command += ['-loglevel', 'verbose' if verbose else 'error']
-
-    # Add input file(s) to command
-    for path in input_paths:
-        command += ['-i', path]
-
-    # Add user-provided options
-    if options:
-        command += options
-
-    # Add output file to command
-    command += [output_path]
-
-    # Execute the command
-    subprocess.run(command, check=True)
-
-
-def combine_streams(video_file_path, audio_file_path, output_path, verbose=False):
-    """
-    Combine video and audio streams into a single file using FFmpeg.
-
-    Args:
-        video_file_path: Path to the video file.
-        audio_file_path: Path to the audio file.
-        output_path: Output path for the combined file.
-        verbose: Enable verbose FFmpeg output.
-    """
-    input_paths = [video_file_path, audio_file_path]
-    # FFmpeg options to copy video codec and use AAC audio codec
-    options = ['-c:v', 'copy', '-c:a', 'aac', '-y']
-    run_ffmpeg_command(input_paths, output_path, options, verbose)
-
-
-def convert_audio_to_wav(video_file_path, wav_path, verbose=False):
-    """
-    Extract the audio from the video file and convert it to WAV format using FFmpeg.
-
-    Args:
-        video_file_path: Path to the video file.
-        wav_path: Output path for the WAV file.
-        verbose: Enable verbose FFmpeg output.
-    """
-    input_paths = [video_file_path]
-    # FFmpeg options to ignore video, use PCM signed 16-bit little endian audio codec, and set sample rate
-    options = ['-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', '-y']
-    run_ffmpeg_command(input_paths, wav_path, options, verbose)
-
-
-def download_and_process_video(video_url: str, folder_name: str = "Downloaded_Videos", verbose=False):
-    """
-    Coordinate the downloading and processing of YouTube videos.
-
-    Args:
-        video_url: URL of the YouTube video.
-        folder_name: Name of the folder where videos will be downloaded.
-    """
-    if not check_ffmpeg_installed():
-        return
-
-    if not is_valid_youtube_url(video_url):
-        print(f"Invalid video URL provided: {video_url}")
-        return
-
-    yt = YouTube(video_url)
-    download_path = Path(folder_name).mkdir(parents=True, exist_ok=True)
-    sanitized_title = sanitize_filename(yt.title)
-    final_video_path = Path(folder_name) / f"{sanitized_title}.mp4"
-    wav_path = Path(folder_name) / f"{sanitized_title}.wav"
-
-    try:
-
-        if yt.streams.filter(adaptive=True).first():
-            video_file_path, audio_file_path = download_stream(yt, folder_name, 'adaptive')
-            combine_streams(video_file_path, audio_file_path, str(final_video_path), verbose=verbose)
-
+        # Update logger level based on verbosity
+        if self.verbose:
+            logger.setLevel(logging.DEBUG)
         else:
-            download_stream(yt, folder_name, 'progressive')
-        convert_audio_to_wav(str(final_video_path), str(wav_path), verbose=verbose)
+            logger.setLevel(logging.INFO)
 
-        if verbose:
-            print(f"Video saved in: '{final_video_path}'")
-            print(f"Audio in WAV format saved in: '{wav_path}'")
-        return True, f"Downloaded: {sanitized_title}"
-    
-    except Exception as e:
-        return False, f"Error downloading {video_url}: {e}"
+    @staticmethod
+    def is_valid_youtube_url(url: str) -> bool:
+        """Validate if the provided URL is a valid YouTube video URL."""
+        return bool(YOUTUBE_URL_REGEX.match(url.strip()))
 
+    @staticmethod
+    def sanitize_filename(title: str, max_length: int = 255) -> str:
+        """
+        Sanitize a string to create a safe and clean filename.
 
-def download_videos_from_file(file_path: str, folder_name: str = "Downloaded_Videos", verbose=False):
-    file_path = Path(file_path)
+        Args:
+            title (str): Original title of the video.
+            max_length (int): Maximum allowed length for the filename.
 
-    if not file_path.exists():
-        print(f"'{file_path.name}' not found. Creating the file for you to add video URLs.")
-        file_path.touch()
-        return
+        Returns:
+            str: Sanitized filename.
+        """
+        sanitized_title = unicodedata.normalize('NFKD', title)
+        sanitized_title = ILLEGAL_CHAR_PATTERN.sub('', sanitized_title)
+        sanitized_title = SPACE_PATTERN.sub('_', sanitized_title).strip(".")
+        sanitized_title = sanitized_title.encode('utf-8')[:max_length].decode('utf-8', 'ignore').rstrip('_')
+        return unicodedata.normalize('NFC', sanitized_title)
 
-    urls = file_path.read_text().splitlines()
+    def get_cookies_file(self) -> Optional[Path]:
+        """
+        Prompt the user to provide the path to the cookies.txt file or use the default in the working directory.
 
-    if not urls:
-        print(f"'{file_path.name}' is empty. Please add some video URLs to it.")
-        return
-
-    valid_urls = [url for url in urls if is_valid_youtube_url(url)]
-
-    if not valid_urls:
-        print(f"No valid video URLs found in '{file_path.name}'.")
-        return
-
-    print(f"Starting downloads for {len(valid_urls)} valid video URL(s)...")
-
-    for index, url in enumerate(valid_urls, start=1):
-        success, message = download_and_process_video(url, folder_name, verbose=verbose)
-
-        if success:
-            print(f"{index}. {message}")
-
+        Returns:
+            Optional[Path]: Path to the cookies.txt file or None.
+        """
+        default_cookies_path = Path.cwd() / "cookies.txt"
+        if default_cookies_path.exists():
+            use_default = input(f"Found 'cookies.txt' in the current directory. Use it? (y/n): ").strip().lower()
+            if use_default == 'y':
+                logger.debug(f"Using default cookies file: {default_cookies_path}")
+                return default_cookies_path
         else:
-            print(f"{index}. {message} (Failed)")
+            logger.debug("No 'cookies.txt' found in the current directory.")
 
-    print("Download session completed.")
-
-
-def run_ui():
-    """
-    User Interface function to handle user input and execute corresponding actions.
-    """
-    print("\nWelcome to the You2Wav Downloader")
-
-    while True:
-        print("\nSelect an option:")
-        print("(1) Download a YouTube video")
-        print("(2) Download videos from urls.txt")
-        print("(3) Quit")
-        user_input = input("Enter 1, 2, or 3: ").strip().lower()
-
-        if user_input == '3' or user_input == 'quit':
-            print("Exiting the program. Goodbye!")
-            break
-
-        elif user_input == '2':
-            file_path = Path.cwd() / "urls.txt"
-            handle_file_download_option(file_path)
-
-        elif user_input == '1':
-            handle_single_video_download_option()
-
+        cookies_path_input = input("Enter the path to your 'cookies.txt' file (or press Enter to skip): ").strip()
+        if cookies_path_input:
+            cookies_file = Path(cookies_path_input)
+            if cookies_file.exists():
+                logger.debug(f"Using provided cookies file: {cookies_file}")
+                return cookies_file
+            else:
+                logger.warning(f"Cookies file '{cookies_file}' not found.")
         else:
-            print("Invalid option. Please enter 1, 2, or 3.")
+            logger.info("Proceeding without cookies. Some videos may require authentication.")
 
+        return None
 
-def handle_file_download_option(file_path):
+    def download_video(self, video_url: str, cookies_file: Optional[Path] = None) -> Tuple[bool, str]:
+        """
+        Download a single YouTube video using yt-dlp, ensuring the output is an MP4 file.
 
-    if not file_path.exists():
-        print(f"'{file_path.name}' not found. Creating the file for you to add video URLs.")
-        file_path.touch()
+        Args:
+            video_url (str): URL of the YouTube video.
+            cookies_file (Optional[Path]): Path to the cookies.txt file for authentication.
 
-    elif file_path.read_text().strip() == "":
-        print("urls.txt is currently empty. Please add some YouTube URLs to it and try again.")
+        Returns:
+            Tuple[bool, str]: Success status and message.
+        """
+        if not self.is_valid_youtube_url(video_url):
+            logger.error(f"Invalid URL: {video_url}")
+            return False, f"Invalid URL: {video_url}"
 
-    else:
-        download_videos_from_file(str(file_path), "Downloaded_Videos")
+        # Prepare yt-dlp options to ensure MP4 output
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': str(self.download_path / '%(title)s.%(ext)s'),
+            'quiet': not self.verbose,
+            'no_warnings': not self.verbose,
+            'merge_output_format': 'mp4',  # Ensure the final output is MP4
+            'cookiefile': str(cookies_file) if cookies_file else None,
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
+        }
 
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.debug(f"Starting download for: {video_url}")
+                info_dict = ydl.extract_info(video_url, download=True)
+                title = self.sanitize_filename(info_dict.get('title', 'video'))
+                ext = 'mp4'  # Ensure extension is mp4
+                video_file = self.download_path / f"{title}.{ext}"
 
-def handle_single_video_download_option():
-    video_url = input("Enter the YouTube video URL: ").strip()
+                if video_file.exists():
+                    logger.info(f"Successfully downloaded: '{video_file}'")
+                    return True, f"Downloaded: {title}"
+                else:
+                    logger.error(f"Download completed but file not found: '{video_file}'")
+                    return False, f"Download completed but file not found: {title}"
 
-    if is_valid_youtube_url(video_url):
-        success, message = download_and_process_video(video_url, "Downloaded_Videos")
-        print(message if success else f"Failed to download: {message}")
+        except yt_dlp.utils.DownloadError as e:
+            logger.error(f"Error downloading {video_url}: {e}")
+            return False, f"Error downloading {video_url}: {e}"
 
-    else:
-        print("Invalid URL. Please enter a valid YouTube video URL.")
+    def download_videos_from_file(self, file_path: str, cookies_file: Optional[Path] = None) -> None:
+        """
+        Download multiple YouTube videos listed in a file concurrently.
 
+        Args:
+            file_path (str): Path to the file containing YouTube URLs.
+            cookies_file (Optional[Path]): Path to the cookies.txt file for authentication.
+        """
+        file_path = Path(file_path)
+        if not file_path.exists():
+            logger.error(f"'{file_path.name}' not found. Creating the file for you to add video URLs.")
+            file_path.touch()
+            return
+
+        urls = [line.strip() for line in file_path.read_text().splitlines() if self.is_valid_youtube_url(line.strip())]
+        if not urls:
+            logger.warning(f"No valid video URLs found in '{file_path.name}'.")
+            return
+
+        logger.info(f"Starting downloads for {len(urls)} video(s)...")
+
+        # Use ThreadPoolExecutor for concurrent downloads
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            future_to_url = {executor.submit(self.download_video, url, cookies_file): url for url in urls}
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    success, message = future.result()
+                    status = "Success" if success else "Failed"
+                    logger.info(f"[{status}] {message}")
+                except Exception as e:
+                    logger.error(f"[Failed] Exception occurred while downloading {url}: {e}")
+
+        logger.info("Download session completed.")
+
+    def run_ui(self) -> None:
+        """
+        User Interface function to handle user input and execute corresponding actions.
+        """
+        logger.info("\nWelcome to the YouTube Video Downloader")
+        while True:
+            print("\nSelect an option:")
+            print("(1) Download a YouTube video")
+            print("(2) Download videos from urls.txt")
+            print("(3) Quit")
+            user_input = input("Enter 1, 2, or 3: ").strip().lower()
+
+            if user_input in ('3', 'quit'):
+                logger.info("Exiting the program. Goodbye!")
+                break
+            elif user_input == '2':
+                file_path = Path.cwd() / "urls.txt"
+                cookies_file = self.get_cookies_file()
+                self.download_videos_from_file(str(file_path), cookies_file=cookies_file)
+            elif user_input == '1':
+                video_url = input("Enter the YouTube video URL: ").strip()
+                if self.is_valid_youtube_url(video_url):
+                    cookies_file = self.get_cookies_file()
+                    success, message = self.download_video(
+                        video_url, cookies_file=cookies_file
+                    )
+                    if success:
+                        logger.info(message)
+                    else:
+                        logger.error(f"Failed to download: {message}")
+                else:
+                    logger.error("Invalid URL. Please enter a valid YouTube video URL.")
+            else:
+                logger.warning("Invalid option. Please enter 1, 2, or 3.")
+
+def main():
+    downloader = YouTubeDownloader(verbose=VERBOSE)
+    downloader.run_ui()
 
 if __name__ == "__main__":
-    run_ui()
+    main()

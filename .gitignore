@@ -141,6 +141,9 @@ cython_debug/
 # Download content
 Downloaded_Videos/
 urls.txt
+cookies.txt
+Downloaded_Audio/
+
 
 # FFmpeg executables and related files
 ffmpeg
